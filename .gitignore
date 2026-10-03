@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.vs/
+artifacts/
+.artifacts/
+**/__pycache__/
+*.user
+*.suo
+.venv/

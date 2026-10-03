@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DeltaHarmonica.Core/DeltaHarmonica.Core.csproj" />
+    <None Include="../../examples/小星星.mid" Link="小星星.mid" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

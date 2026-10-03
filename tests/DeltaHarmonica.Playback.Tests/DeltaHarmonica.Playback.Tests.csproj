@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DeltaHarmonica.Core/DeltaHarmonica.Core.csproj" />
+    <Compile Include="../../src/DeltaHarmonica.App/Services/PlaybackEngine.cs" Link="PlaybackEngine.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Services/NativeInputService.cs" Link="NativeInputService.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Services/GlobalHotkeyService.cs" Link="GlobalHotkeyService.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Services/ForegroundWindowService.cs" Link="ForegroundWindowService.cs" />
+  </ItemGroup>
+</Project>
