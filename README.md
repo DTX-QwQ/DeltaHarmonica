@@ -4,7 +4,7 @@
 
 基于 **WinUI 3 + C# / .NET 8** 的 Windows 桌面程序：读取 MIDI，把旋律转换成 `z x c v b n m ,` 按键，并通过 Windows `SendInput` 演奏游戏内口琴。音频转 MIDI 使用本机 Basic Pitch ONNX 模型。
 
-**开源免费项目，严禁倒卖盈利。** 源码地址：[Amor-Vooc/DeltaHarmonica](https://github.com/Amor-Vooc/DeltaHarmonica)。请从项目仓库和官方 Releases 获取软件，勿购买付费转售版本。
+**开源免费项目，严禁倒卖盈利。** 源码地址：[DTX-QwQ/DeltaHarmonica](https://github.com/DTX-QwQ/DeltaHarmonica)。请从项目仓库和官方 Releases 获取软件，勿购买付费转售版本。
 
 ## 风险提示与免责声明
 
@@ -15,7 +15,7 @@
 
 ## 运行
 
-从 [GitHub Releases](https://github.com/Amor-Vooc/DeltaHarmonica/releases/latest) 下载 `DeltaHarmonica-v1.1.0-win-x64.zip`，完整解压后运行文件夹中的 `DeltaHarmonica.App.exe`。Release 同时提供 SHA-256 校验文件。
+从 [GitHub Releases](https://github.com/DTX-QwQ/DeltaHarmonica/releases/latest) 下载 `DeltaHarmonica-v1.1.0-win-x64.zip`，完整解压后运行文件夹中的 `DeltaHarmonica.App.exe`。Release 同时提供 SHA-256 校验文件。
 
 程序默认请求以管理员身份运行，启动时 Windows 会显示 UAC 权限确认；允许后进入软件。若当前账号没有管理员权限，需要提供管理员凭据。管理员权限用于减少 Windows 输入权限等级不同导致的失败，不能绕过游戏保护或保证模拟输入有效。
 

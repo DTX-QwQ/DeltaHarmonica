@@ -18,6 +18,7 @@ var testRoot = Path.GetFullPath(integration || managedEnvironment
 var testFolder = "DeltaHarmonica-audio-tests-" + Guid.NewGuid().ToString("N");
 var testDirectory = Path.GetFullPath(Path.Combine(testRoot, testFolder));
 Directory.CreateDirectory(testDirectory);
+Exception? testFailure = null;
 try
 {
     var service = new AudioTranscriptionService(testDirectory);
@@ -149,6 +150,11 @@ try
         Console.WriteLine("PASS: repeated conversions use distinct selected-directory outputs and preserve existing files.");
     }
 }
+catch (Exception error)
+{
+    testFailure = error;
+    throw;
+}
 finally
 {
     // Resolve and validate the owned path before recursively deleting a venv.
@@ -156,7 +162,13 @@ finally
     var rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(testRoot)) + Path.DirectorySeparatorChar;
     if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) || Path.GetFileName(resolved) != testFolder)
         throw new InvalidOperationException("Unsafe test cleanup target: " + resolved);
-    Directory.Delete(resolved, recursive: integration || managedEnvironment);
+    try { Directory.Delete(resolved, recursive: integration || managedEnvironment); }
+    catch (IOException cleanupError) when (testFailure is not null)
+    {
+        // Preserve the actual test failure if a failed process test still owns
+        // the working directory; cleanup must not replace its diagnostic.
+        Console.Error.WriteLine($"Test cleanup also failed: {cleanupError.Message}");
+    }
 }
 
 static void WriteTestAudio(string path)

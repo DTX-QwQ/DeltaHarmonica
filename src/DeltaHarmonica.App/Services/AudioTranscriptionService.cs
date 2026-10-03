@@ -267,12 +267,48 @@ public sealed class AudioTranscriptionService
 
         // Cancel may come from Window.Closed. Kill synchronously in its callback,
         // before the UI message loop and the .NET process can terminate.
-        using var cancellationRegistration = cancellationToken.Register(() =>
+        var terminationLock = new object();
+        void TerminateProcessTree()
         {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            catch (InvalidOperationException) { }
-            catch (Win32Exception) { }
-        });
+            // Token callbacks and the canceled await can run concurrently. A
+            // second traversal must not race the first through Python's venv launcher.
+            lock (terminationLock)
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    // Windows venv launchers can forward to another interpreter;
+                    // taskkill snapshots the full tree before terminating its parents.
+                    try
+                    {
+                        if (process.HasExited) return;
+                        var terminate = new ProcessStartInfo
+                        {
+                            FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "taskkill.exe"),
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true
+                        };
+                        terminate.ArgumentList.Add("/PID");
+                        terminate.ArgumentList.Add(process.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        terminate.ArgumentList.Add("/T");
+                        terminate.ArgumentList.Add("/F");
+                        using var terminator = Process.Start(terminate);
+                        if (terminator is not null)
+                        {
+                            if (terminator.WaitForExit(5000) && terminator.ExitCode == 0) return;
+                            if (!terminator.HasExited) terminator.Kill();
+                        }
+                    }
+                    catch (InvalidOperationException) { }
+                    catch (Win32Exception) { }
+                }
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
+            }
+        }
+        using var cancellationRegistration = cancellationToken.Register(TerminateProcessTree);
 
         var lines = new Queue<string>();
         var outputLock = new object();
@@ -303,15 +339,14 @@ public sealed class AudioTranscriptionService
         }
         catch (OperationCanceledException)
         {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            catch (InvalidOperationException) { }
-            catch (Win32Exception) { }
+            TerminateProcessTree();
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
             await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
             progress?.Report("操作已取消。");
             throw;
         }
         await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var outputText = string.Join(Environment.NewLine, lines);
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"音频转换环境运行失败（退出码 {process.ExitCode}）。{Environment.NewLine}{outputText}");
