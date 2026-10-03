@@ -13,7 +13,7 @@ namespace DeltaHarmonica.App.Services;
 /// <summary>Runs local audio transcription in an application-owned Python venv.</summary>
 public sealed class AudioTranscriptionService
 {
-    private const string EnvironmentRevision = "basic-pitch-0.4.0-onnx-1.19.2-v1";
+    private const string EnvironmentRevision = "basic-pitch-0.4.0-onnx-1.19.2-tempo-v2";
     private readonly string _dataDirectory;
     private readonly string _toolDirectory;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
@@ -29,6 +29,7 @@ public sealed class AudioTranscriptionService
     private string EnvironmentPython => Path.Combine(EnvironmentDirectory, "Scripts", "python.exe");
     private string ReadyMarker => Path.Combine(EnvironmentDirectory, "delta-harmonica-ready.txt");
     private string ScriptPath => Path.Combine(_toolDirectory, "audio_to_midi.py");
+    private string TempoScriptPath => Path.Combine(_toolDirectory, "vendor", "music-tempo.min.js");
 
     /// <summary>The last setup completed and its managed files still exist.</summary>
     public bool IsInstalled
@@ -37,7 +38,8 @@ public sealed class AudioTranscriptionService
         {
             try
             {
-                return File.Exists(EnvironmentPython) && File.Exists(ScriptPath) &&
+                return File.Exists(EnvironmentPython) && File.Exists(ScriptPath) && File.Exists(TempoScriptPath) &&
+                       File.Exists(Path.Combine(_toolDirectory, "requirements.txt")) &&
                        File.Exists(ReadyMarker) && File.ReadAllText(ReadyMarker).Trim() == EnvironmentRevision;
             }
             catch (IOException) { return false; }
@@ -122,10 +124,17 @@ public sealed class AudioTranscriptionService
 
     /// <summary>Returns a verified .mid path; never overwrites an existing MIDI.</summary>
     public async Task<string> TranscribeAsync(
-        string audioPath, string outputDirectory, IProgress<string>? progress, CancellationToken cancellationToken)
+        string audioPath, string outputDirectory, IProgress<string>? progress, CancellationToken cancellationToken,
+        string quantization = "none", string preset = "balanced", string melodyMode = "highest")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(audioPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
+        if (quantization is not ("none" or "1/4" or "1/8" or "1/16"))
+            throw new ArgumentException("节拍量化必须为 none、1/4、1/8 或 1/16。", nameof(quantization));
+        if (preset is not ("solo" or "balanced" or "ensemble"))
+            throw new ArgumentException("识别预设必须为 solo、balanced 或 ensemble。", nameof(preset));
+        if (melodyMode is not ("highest" or "smart" or "polyphonic"))
+            throw new ArgumentException("输出旋律必须为 highest、smart 或 polyphonic。", nameof(melodyMode));
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         string? outputPath = null;
         try
@@ -146,9 +155,10 @@ public sealed class AudioTranscriptionService
             // overwriting this job's output when two app instances are open.
             outputPath = Path.Combine(outputDirectory,
                 $"{sourceStem}_转谱_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.mid");
-            progress?.Report("转换在本机运行；清晰的单一乐器音频通常更准确。");
+            progress?.Report("转换在本机运行；建议使用独奏、纯伴奏或器乐录音。");
             var result = await RunProcessAsync(EnvironmentPython,
-                ["-I", "-u", ScriptPath, audioPath, outputPath],
+                ["-I", "-u", ScriptPath, audioPath, outputPath, "--quantize", quantization,
+                    "--preset", preset, "--melody", melodyMode],
                 progress, cancellationToken).ConfigureAwait(false);
             using (var document = JsonDocument.Parse(result.ResultJson ?? "{}"))
             {
@@ -195,7 +205,8 @@ public sealed class AudioTranscriptionService
 
     private void VerifyBundledTools()
     {
-        if (!File.Exists(ScriptPath) || !File.Exists(Path.Combine(_toolDirectory, "requirements.txt")))
+        if (!File.Exists(ScriptPath) || !File.Exists(TempoScriptPath) ||
+            !File.Exists(Path.Combine(_toolDirectory, "requirements.txt")))
             throw new FileNotFoundException("程序未包含音频转谱脚本，请重新完整解压或构建应用。", ScriptPath);
     }
 
@@ -207,7 +218,9 @@ public sealed class AudioTranscriptionService
         var value = document.RootElement;
         if (!value.TryGetProperty("ready", out var ready) || !ready.GetBoolean() ||
             !value.TryGetProperty("basic_pitch", out var pitch) || pitch.GetString() != "0.4.0" ||
-            !value.TryGetProperty("onnxruntime", out var runtime) || runtime.GetString() != "1.19.2")
+            !value.TryGetProperty("onnxruntime", out var runtime) || runtime.GetString() != "1.19.2" ||
+            !value.TryGetProperty("music_tempo", out var tempo) || tempo.GetString() != "1.0.3" ||
+            !value.TryGetProperty("mini_racer", out var jsRuntime) || jsRuntime.GetString() != "0.14.1")
             throw new InvalidOperationException("音频转谱环境验证失败，请重新安装。");
     }
 

@@ -8,11 +8,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/DeltaHarmonica.Core/DeltaHarmonica.Core.csproj" />
-    <Compile Include="../../src/DeltaHarmonica.App/Services/PlaybackEngine.cs" Link="PlaybackEngine.cs" />
     <Compile Include="../../src/DeltaHarmonica.App/Services/IPreviewAudioSink.cs" Link="IPreviewAudioSink.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Services/HarmonicaSynthesizer.cs" Link="HarmonicaSynthesizer.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Services/PreviewAudioService.cs" Link="PreviewAudioService.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Services/PlaybackEngine.cs" Link="PlaybackEngine.cs" />
     <Compile Include="../../src/DeltaHarmonica.App/Services/NativeInputService.cs" Link="NativeInputService.cs" />
-    <Compile Include="../../src/DeltaHarmonica.App/Services/GlobalHotkeyService.cs" Link="GlobalHotkeyService.cs" />
-    <Compile Include="../../src/DeltaHarmonica.App/Services/ForegroundWindowService.cs" Link="ForegroundWindowService.cs" />
-    <Compile Include="../../src/DeltaHarmonica.App/Models/AppSettings.cs" Link="AppSettings.cs" />
   </ItemGroup>
 </Project>

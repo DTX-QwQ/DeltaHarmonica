@@ -4,10 +4,14 @@ using System.Runtime.InteropServices;
 
 namespace DeltaHarmonica.App.Services;
 
-public enum HotkeyAction { TogglePause, Previous, Next, Stop }
+public enum HotkeyAction { TogglePause, Previous, Next, Stop, Start }
 
 public sealed record HotkeySettings(
-    string Pause = "F8", string Previous = "F6", string Next = "F7", string Stop = "F9");
+    string Pause = "F8", string Previous = "F6", string Next = "F7", string Stop = "F9")
+{
+    // Keep the existing constructor so older settings gain F5 without replacing custom shortcuts.
+    public string Start { get; init; } = "F5";
+}
 
 /// <summary>Registers global keyboard shortcuts on the WinUI window's owning UI thread.</summary>
 public sealed class GlobalHotkeyService : IDisposable
@@ -124,6 +128,7 @@ public sealed class GlobalHotkeyService : IDisposable
         parsed = [];
         var requested = new (HotkeyAction Action, string Text)[]
         {
+            (HotkeyAction.Start, settings.Start),
             (HotkeyAction.TogglePause, settings.Pause), (HotkeyAction.Previous, settings.Previous),
             (HotkeyAction.Next, settings.Next), (HotkeyAction.Stop, settings.Stop)
         };
@@ -213,6 +218,7 @@ public sealed class GlobalHotkeyService : IDisposable
 
     private static string ActionName(HotkeyAction action) => action switch
     {
+        HotkeyAction.Start => "开始演奏",
         HotkeyAction.TogglePause => "暂停/继续", HotkeyAction.Previous => "上一首",
         HotkeyAction.Next => "下一首", _ => "停止"
     };

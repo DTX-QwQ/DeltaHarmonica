@@ -22,9 +22,16 @@ class CliTests(unittest.TestCase):
         result = self.invoke("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--check", result.stdout)
+        self.assertIn("--quantize", result.stdout)
+        self.assertIn("--preset", result.stdout)
+        self.assertIn("--melody", result.stdout)
 
     def test_invalid_arguments_fail_before_loading_model(self):
-        for args in ((), ("in.wav",), ("in.wav", "out.mid", "--tempo", "0"),
+        for args in ((), ("in.wav",), ("in.wav", "out.mid", "--minimum-note-length", "0"),
+                     ("in.wav", "out.mid", "--minimum-note-length", "nan"),
+                     ("in.wav", "out.mid", "--quantize", "1/3"),
+                     ("in.wav", "out.mid", "--preset", "unknown"),
+                     ("in.wav", "out.mid", "--melody", "unknown"),
                      ("in.wav", "out.mid", "--onset-threshold", "2")):
             with self.subTest(args=args):
                 result = self.invoke(*args)

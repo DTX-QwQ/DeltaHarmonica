@@ -10,5 +10,6 @@
     <Compile Include="../../../../src/DeltaHarmonica.App/Services/AudioTranscriptionService.cs" Link="AudioTranscriptionService.cs" />
     <Content Include="../../audio_to_midi.py" Link="tools/audio_to_midi/audio_to_midi.py" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../requirements.txt" Link="tools/audio_to_midi/requirements.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../vendor/*" Link="tools/audio_to_midi/vendor/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

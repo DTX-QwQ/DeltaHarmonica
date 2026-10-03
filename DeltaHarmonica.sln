@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeltaHarmonica.Core.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeltaHarmonica.Playback.Tests", "tests\DeltaHarmonica.Playback.Tests\DeltaHarmonica.Playback.Tests.csproj", "{EBB023F8-F7BD-49CD-8A3C-0B165F513F2F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeltaHarmonica.Audio.Tests", "tests\DeltaHarmonica.Audio.Tests\DeltaHarmonica.Audio.Tests.csproj", "{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -73,6 +75,18 @@ Global
 		{EBB023F8-F7BD-49CD-8A3C-0B165F513F2F}.Release|x64.Build.0 = Release|Any CPU
 		{EBB023F8-F7BD-49CD-8A3C-0B165F513F2F}.Release|x86.ActiveCfg = Release|Any CPU
 		{EBB023F8-F7BD-49CD-8A3C-0B165F513F2F}.Release|x86.Build.0 = Release|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Debug|x64.Build.0 = Debug|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Debug|x86.Build.0 = Debug|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Release|x64.ActiveCfg = Release|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Release|x64.Build.0 = Release|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Release|x86.ActiveCfg = Release|Any CPU
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -82,5 +96,6 @@ Global
 		{04F3B7F7-0636-4329-ADAC-B24A8FC25204} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8E1617C5-977F-414B-A530-1EB9739C7ADD} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{EBB023F8-F7BD-49CD-8A3C-0B165F513F2F} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{D0AC1DC5-D8F1-4441-85F9-6F9C9C72D37E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

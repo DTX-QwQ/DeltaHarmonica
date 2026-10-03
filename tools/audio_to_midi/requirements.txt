@@ -14,3 +14,5 @@ soundfile==0.12.1
 soxr==0.5.0.post1
 mido==1.3.2
 typing_extensions==4.12.2
+# Embedded V8 executes the bundled MIT music-tempo library, without Node.js.
+mini-racer==0.14.1

@@ -4,12 +4,16 @@ using System.Text;
 using DeltaHarmonica.App.Services;
 using DeltaHarmonica.Core;
 
-// Default tests install nothing. --integration opts into a temporary local venv.
-if (args.Length is < 1 or > 2 || !File.Exists(args[0]) || (args.Length == 2 && args[1] != "--integration"))
-    throw new ArgumentException("Pass an absolute Python executable path and optional --integration.");
-var integration = args.Length == 2;
-var testRoot = Path.GetFullPath(integration
-    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeltaHarmonica", "TestRuns")
+// Default tests install nothing. Managed mode reuses the application's environment read-only;
+// --integration is the explicit opt-in that creates and installs a disposable local venv.
+if (args.Length is < 1 or > 2 || !Path.IsPathFullyQualified(args[0]) || !File.Exists(args[0]) ||
+    (args.Length == 2 && args[1] is not ("--integration" or "--managed-environment")))
+    throw new ArgumentException("Pass an absolute Python executable path and optional --integration or --managed-environment.");
+var integration = args.Length == 2 && args[1] == "--integration";
+var managedEnvironment = args.Length == 2 && args[1] == "--managed-environment";
+var applicationData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeltaHarmonica");
+var testRoot = Path.GetFullPath(integration || managedEnvironment
+    ? Path.Combine(applicationData, "TestRuns")
     : Path.GetTempPath());
 var testFolder = "DeltaHarmonica-audio-tests-" + Guid.NewGuid().ToString("N");
 var testDirectory = Path.GetFullPath(Path.Combine(testRoot, testFolder));
@@ -18,6 +22,35 @@ try
 {
     var service = new AudioTranscriptionService(testDirectory);
     if (service.IsInstalled) throw new Exception("A fresh environment must not be installed.");
+    foreach (var quantization in new[] { "quarter", "1/2", "1/32", "1/4 --inject", "" })
+    {
+        try
+        {
+            await service.TranscribeAsync("unused.wav", "unused-output", null, CancellationToken.None, quantization);
+            throw new Exception("Invalid quantization unexpectedly succeeded: " + quantization);
+        }
+        catch (ArgumentException error) when (error.ParamName == "quantization") { }
+    }
+    Console.WriteLine("PASS: invalid quantization is rejected before environment access or process launch.");
+    foreach (var preset in new[] { "", "standard", "solo --inject" })
+    {
+        try
+        {
+            await service.TranscribeAsync("unused.wav", "unused-output", null, CancellationToken.None, preset: preset);
+            throw new Exception("Invalid preset unexpectedly succeeded: " + preset);
+        }
+        catch (ArgumentException error) when (error.ParamName == "preset") { }
+    }
+    foreach (var melody in new[] { "", "raw", "smart --inject" })
+    {
+        try
+        {
+            await service.TranscribeAsync("unused.wav", "unused-output", null, CancellationToken.None, melodyMode: melody);
+            throw new Exception("Invalid melody unexpectedly succeeded: " + melody);
+        }
+        catch (ArgumentException error) when (error.ParamName == "melodyMode") { }
+    }
+    Console.WriteLine("PASS: invalid preset and melody mode are rejected before process launch.");
     var method = typeof(AudioTranscriptionService).GetMethod("RunProcessAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
     var childStarted = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
     var progress = new ImmediateProgress(line =>
@@ -46,23 +79,74 @@ try
     }
     catch (ArgumentException) { /* Process was removed from OS process table. */ }
     Console.WriteLine("PASS: canceled audio process and its Python child terminated.");
-    if (integration)
+    if (integration || managedEnvironment)
     {
+        var conversionLog = new System.Collections.Concurrent.ConcurrentQueue<string>();
         var log = new ImmediateProgress(line =>
         {
+            conversionLog.Enqueue(line);
             if (line.StartsWith("正在") || line.StartsWith("音频转") || line.StartsWith("识别到") || line.StartsWith("转换完成"))
                 Console.WriteLine(line);
         });
-        await service.EnsureEnvironmentAsync(args[0], log, CancellationToken.None);
-        if (!service.IsInstalled) throw new Exception("Successful installation did not mark the environment ready.");
+        if (integration)
+        {
+            await service.EnsureEnvironmentAsync(args[0], log, CancellationToken.None);
+            if (!service.IsInstalled) throw new Exception("Successful installation did not mark the environment ready.");
+        }
+        else
+        {
+            service = new AudioTranscriptionService(applicationData);
+            if (!service.IsInstalled)
+                throw new Exception("Managed conversion environment is not ready; managed tests never install or repair it.");
+        }
         var audioPath = Path.Combine(testDirectory, "真实 服务测试.wav");
         WriteTestAudio(audioPath);
-        var output = await service.TranscribeAsync(audioPath, Path.Combine(testDirectory, "转谱 结果"), log, CancellationToken.None);
-        var song = MidiReader.Read(output);
-        var pitches = song.Notes.Select(note => note.Pitch).Distinct().Order().ToArray();
-        if (!pitches.Contains(69) || !pitches.Contains(72) || song.Notes.Count != 2)
-            throw new Exception("Expected A4/C5, received " + string.Join(",", pitches));
-        Console.WriteLine($"PASS: C# EnsureEnvironmentAsync + TranscribeAsync → app MIDI parser; notes={song.Notes.Count}, pitches=[{string.Join(',', pitches)}].");
+        var outputDirectory = Path.GetFullPath(Path.Combine(testDirectory, "转谱 结果"));
+        Directory.CreateDirectory(outputDirectory);
+        var existingPath = Path.Combine(outputDirectory, "已有 乐谱.mid");
+        var original = Encoding.UTF8.GetBytes("existing MIDI sentinel");
+        File.WriteAllBytes(existingPath, original);
+        var outputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (melody, quantization) in new[]
+        {
+            ("highest", "none"), ("smart", "none"), ("polyphonic", "none"), ("smart", "1/16")
+        })
+        {
+            conversionLog.Clear();
+            var output = await service.TranscribeAsync(audioPath, outputDirectory, log, CancellationToken.None,
+                quantization: quantization, preset: "solo", melodyMode: melody);
+            if (!conversionLog.Any(line => line.Contains("独奏 / 单声部", StringComparison.Ordinal)) ||
+                !conversionLog.Any(line => line.Contains($"旋律：{melody}，量化：{quantization}", StringComparison.Ordinal)))
+                throw new Exception("Python did not confirm the selected preset, melody, and quantization options.");
+            if (!Path.IsPathFullyQualified(output) || !File.Exists(output) ||
+                !string.Equals(Path.GetDirectoryName(output), outputDirectory, StringComparison.OrdinalIgnoreCase) ||
+                !Path.GetFileName(output).StartsWith("真实 服务测试_转谱_", StringComparison.Ordinal) ||
+                Path.GetExtension(output) != ".mid" || !outputs.Add(output))
+                throw new Exception("Conversion did not return a new MIDI in its selected output directory.");
+            var song = MidiReader.Read(output);
+            var notes = song.Notes.OrderBy(note => note.Start).ThenBy(note => note.Pitch).ToArray();
+            var pitches = notes.Select(note => note.Pitch).Distinct().Order().ToArray();
+            // Solo preserves confident repeats, including a possible split near
+            // the synthesized release. Validate pitch/timing coverage instead of
+            // requiring a decoder-specific count of exactly two segments.
+            if (!pitches.SequenceEqual(new[] { 69, 72 }) || notes.Length < 2 ||
+                notes.Any(note => note.Start < TimeSpan.Zero || note.Duration <= TimeSpan.Zero ||
+                    (note.Pitch == 69 && (note.Start.TotalSeconds > 1.1 || note.End.TotalSeconds > 1.2)) ||
+                    (note.Pitch == 72 && (note.Start.TotalSeconds < 1.2 || note.End.TotalSeconds > 2.5))) ||
+                notes.Where(note => note.Pitch == 69).Sum(note => note.Duration.TotalSeconds) < .7 ||
+                notes.Where(note => note.Pitch == 72).Sum(note => note.Duration.TotalSeconds) < .7)
+                throw new Exception($"Expected valid A4/C5 coverage for {melody}/{quantization}, received [{string.Join(',', pitches)}], count={notes.Length}, timings=[{string.Join(';', notes.Select(note => $"{note.Pitch}:{note.Start.TotalSeconds:F4}+{note.Duration.TotalSeconds:F4}"))}].");
+            if (melody != "polyphonic" && notes.Zip(notes.Skip(1)).Any(pair => pair.First.End > pair.Second.Start))
+                throw new Exception($"Monophonic {melody} output contains overlapping notes.");
+            if (quantization != "none" && notes.Any(note => note.DurationTicks < song.TicksPerQuarterNote / 16))
+                throw new Exception("Quantized output contains a note shorter than one grid step.");
+            Console.WriteLine($"PASS: C# TranscribeAsync → app MIDI parser; preset=solo, melody={melody}, quantization={quantization}, notes={notes.Length}, pitches=[{string.Join(',', pitches)}].");
+        }
+        if (!File.ReadAllBytes(existingPath).SequenceEqual(original) || !File.Exists(audioPath))
+            throw new Exception("Conversion modified an existing file or its source audio.");
+        if (Directory.EnumerateFiles(outputDirectory, "*.tmp.mid").Any())
+            throw new Exception("Successful conversion left a temporary MIDI file.");
+        Console.WriteLine("PASS: repeated conversions use distinct selected-directory outputs and preserve existing files.");
     }
 }
 finally
@@ -72,7 +156,7 @@ finally
     var rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(testRoot)) + Path.DirectorySeparatorChar;
     if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) || Path.GetFileName(resolved) != testFolder)
         throw new InvalidOperationException("Unsafe test cleanup target: " + resolved);
-    Directory.Delete(resolved, recursive: integration);
+    Directory.Delete(resolved, recursive: integration || managedEnvironment);
 }
 
 static void WriteTestAudio(string path)
