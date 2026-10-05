@@ -1,3 +1,4 @@
+using DeltaHarmonica.Core;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -9,6 +10,9 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.System;
 using Color = Windows.UI.Color;
+using Point = Windows.Foundation.Point;
+using Rect = Windows.Foundation.Rect;
+using XamlPath = Microsoft.UI.Xaml.Shapes.Path;
 
 namespace DeltaHarmonica.App.Controls;
 
@@ -17,12 +21,21 @@ public sealed class PlaybackTimeline : UserControl
 {
     private const double RailInset = 34;
     private const double RailTop = 30;
-    private readonly Canvas _surface = new() { Height = 62, Background = new SolidColorBrush(Colors.Transparent) };
+    private const double NotesTop = 46;
+    private const double NotesHeight = 16;
+    private readonly Canvas _surface = new() { Height = 72, Background = new SolidColorBrush(Colors.Transparent) };
     private readonly Border _rail = Bar(0x35, 0x41, 0x4B, 8);
     private readonly Border _selection = Bar(0x36, 0x99, 0x7D, 8);
     private readonly Border _played = Bar(0x63, 0xE6, 0xBE, 8);
-    private readonly Border _startLine = Bar(0x63, 0xE6, 0xBE, 21);
-    private readonly Border _endLine = Bar(0x63, 0xE6, 0xBE, 21);
+    private readonly Border _noteRail = Bar(0x25, 0x31, 0x3B, NotesHeight);
+    private readonly XamlPath _allNotes = NotePath(0x63, 0xE6, 0xBE, .28);
+    private readonly XamlPath _selectedNotes = NotePath(0x63, 0xE6, 0xBE, 1);
+    private readonly XamlPath _allOnsets = NotePath(0xC8, 0xFF, 0xEF, .28);
+    private readonly XamlPath _selectedOnsets = NotePath(0xC8, 0xFF, 0xEF, 1);
+    private readonly RectangleGeometry _selectedNoteClip = new();
+    private readonly RectangleGeometry _selectedOnsetClip = new();
+    private readonly Border _startLine = Bar(0x63, 0xE6, 0xBE, 43);
+    private readonly Border _endLine = Bar(0x63, 0xE6, 0xBE, 43);
     private readonly TimelineHandle _startHandle;
     private readonly TimelineHandle _endHandle;
     private readonly TimelineHandle _positionHandle;
@@ -31,6 +44,10 @@ public sealed class PlaybackTimeline : UserControl
     private TimelineHandle? _dragHandle;
     private uint? _dragPointer;
     private double _dragOffset;
+    private NoteInterval[] _noteIntervals = [];
+    private bool _noteGeometryDirty = true;
+    private double _noteGeometryWidth = -1;
+    private double _noteClipStart = double.NaN, _noteClipEnd = double.NaN;
 
     public event EventHandler? RangeChanged;
     public event EventHandler? PositionChanged;
@@ -42,7 +59,9 @@ public sealed class PlaybackTimeline : UserControl
         _startHandle = new(this, TimelinePart.Start, "开始演奏位置", "起");
         _endHandle = new(this, TimelinePart.End, "结束演奏位置", "止");
         _positionHandle = new(this, TimelinePart.Position, "播放位置", null);
-        foreach (var element in new FrameworkElement[] { _rail, _selection, _played, _startLine, _endLine, _startHandle, _endHandle, _positionHandle })
+        _selectedNotes.Clip = _selectedNoteClip;
+        _selectedOnsets.Clip = _selectedOnsetClip;
+        foreach (var element in new FrameworkElement[] { _rail, _selection, _played, _noteRail, _allNotes, _selectedNotes, _allOnsets, _selectedOnsets, _startLine, _endLine, _startHandle, _endHandle, _positionHandle })
             _surface.Children.Add(element);
         foreach (var handle in new[] { _startHandle, _endHandle, _positionHandle })
         {
@@ -67,7 +86,9 @@ public sealed class PlaybackTimeline : UserControl
         get => _maximum;
         set
         {
-            _maximum = double.IsFinite(value) ? Math.Max(0, value) : 0;
+            var maximum = double.IsFinite(value) ? Math.Max(0, value) : 0;
+            if (_maximum != maximum) _noteGeometryDirty = true;
+            _maximum = maximum;
             SetRange(_rangeStart, _rangeEnd);
             Value = _value;
         }
@@ -97,6 +118,19 @@ public sealed class PlaybackTimeline : UserControl
     {
         get => _seekEnabled;
         set { _seekEnabled = value; UpdateAvailability(); }
+    }
+
+    /// <summary>Displays playable chord durations on the same MIDI-time scale as the range handles.</summary>
+    public void SetNoteIntervals(IReadOnlyList<ScheduledChord> chords)
+    {
+        ArgumentNullException.ThrowIfNull(chords);
+        // Copy once when the plan changes. Playback snapshots only move existing visuals.
+        _noteIntervals = chords.Where(chord => chord.Duration > TimeSpan.Zero && chord.Notes.Count > 0)
+            .Select(chord => new NoteInterval(chord.Start.TotalSeconds,
+                chord.Start.TotalSeconds + chord.Duration.TotalSeconds, Math.Min(7, chord.Notes.Count),
+                chord.RetriggerKeys.Count > 0)).ToArray();
+        _noteGeometryDirty = true;
+        UpdateVisuals();
     }
 
     /// <summary>Programmatic synchronization never seeks or raises a range edit.</summary>
@@ -154,6 +188,8 @@ public sealed class PlaybackTimeline : UserControl
         PlaceBar(_rail, RailInset, RailWidth, RailTop);
         PlaceBar(_selection, X(_rangeStart), Math.Max(0, X(_rangeEnd) - X(_rangeStart)), RailTop);
         PlaceBar(_played, X(_rangeStart), Math.Max(0, X(Math.Clamp(_value, _rangeStart, _rangeEnd)) - X(_rangeStart)), RailTop);
+        PlaceBar(_noteRail, RailInset, RailWidth, NotesTop);
+        UpdateNoteVisuals();
         PlaceBar(_startLine, X(_rangeStart) - 1, 2, 22);
         PlaceBar(_endLine, X(_rangeEnd) - 1, 2, 22);
         // Tabs face outwards so both remain draggable even for a sub-pixel selected interval.
@@ -164,6 +200,103 @@ public sealed class PlaybackTimeline : UserControl
         ToolTipService.SetToolTip(_startHandle, $"开始 · {TimeSpan.FromSeconds(_rangeStart):mm\\:ss\\.fff}");
         ToolTipService.SetToolTip(_endHandle, $"结束 · {TimeSpan.FromSeconds(_rangeEnd):mm\\:ss\\.fff}");
     }
+
+    private void UpdateNoteVisuals()
+    {
+        var width = RailWidth;
+        if (_noteGeometryDirty || _noteGeometryWidth != width)
+        {
+            RebuildNoteGeometry(width);
+            _noteGeometryDirty = false;
+            _noteGeometryWidth = width;
+        }
+        var start = X(_rangeStart);
+        var end = X(_rangeEnd);
+        if (_noteClipStart != start || _noteClipEnd != end)
+        {
+            // Each WinUI visual owns its geometry; range edits only move the two clips.
+            _selectedNoteClip.Rect = new Rect(start, NotesTop, Math.Max(0, end - start), NotesHeight);
+            _selectedOnsetClip.Rect = _selectedNoteClip.Rect;
+            _noteClipStart = start;
+            _noteClipEnd = end;
+        }
+    }
+
+    private void RebuildNoteGeometry(double width)
+    {
+        var notes = new PathGeometry();
+        var onsets = new PathGeometry { FillRule = FillRule.Nonzero };
+        if (width > 0 && _maximum > 0 && _noteIntervals.Length > 0)
+        {
+            // Bucket by displayed pixel, bounding the geometry even for very large MIDI files.
+            // Difference arrays make plan traversal linear rather than visiting every covered pixel.
+            var columns = Math.Min(8192, Math.Max(1, (int)Math.Ceiling(width)));
+            var counts = new int[columns + 1];
+            var starts = new bool[columns];
+            foreach (var interval in _noteIntervals)
+            {
+                if (interval.End <= 0 || interval.Start >= _maximum) continue;
+                var first = Math.Clamp((int)Math.Floor(Math.Max(0, interval.Start) / _maximum * columns), 0, columns - 1);
+                var last = Math.Clamp((int)Math.Ceiling(Math.Min(_maximum, interval.End) / _maximum * columns), first + 1, columns);
+                counts[first] += interval.Count;
+                counts[last] -= interval.Count;
+                if (interval.HasOnset && interval.Start >= 0) starts[first] = true;
+            }
+            var columnWidth = width / columns;
+            var active = 0;
+            var runStart = 0;
+            var previous = 0;
+            for (var column = 0; column <= columns; column++)
+            {
+                if (column < columns) active += counts[column];
+                var count = column == columns ? 0 : Math.Min(7, active);
+                if (count != previous)
+                {
+                    if (previous > 0)
+                    {
+                        var height = 4 + previous * 1.5;
+                        AddRectangle(notes, RailInset + runStart * columnWidth, NotesTop + NotesHeight - height,
+                            (column - runStart) * columnWidth, height);
+                    }
+                    runStart = column;
+                    previous = count;
+                }
+                if (column < columns && starts[column])
+                {
+                    var x = RailInset + column * columnWidth;
+                    AddRectangle(onsets, x, NotesTop + 1, Math.Min(1.5, RailInset + width - x), NotesHeight - 1);
+                }
+            }
+        }
+        _allNotes.Data = notes;
+        _selectedNotes.Data = CopyGeometry(notes);
+        _allOnsets.Data = onsets;
+        _selectedOnsets.Data = CopyGeometry(onsets);
+    }
+
+    private static PathGeometry CopyGeometry(PathGeometry source)
+    {
+        var copy = new PathGeometry { FillRule = source.FillRule };
+        foreach (var figure in source.Figures)
+        {
+            var clone = new PathFigure { StartPoint = figure.StartPoint, IsClosed = figure.IsClosed, IsFilled = figure.IsFilled };
+            foreach (var segment in figure.Segments.Cast<LineSegment>())
+                clone.Segments.Add(new LineSegment { Point = segment.Point });
+            copy.Figures.Add(clone);
+        }
+        return copy;
+    }
+
+    private static void AddRectangle(PathGeometry geometry, double x, double y, double width, double height)
+    {
+        var figure = new PathFigure { StartPoint = new Point(x, y), IsClosed = true, IsFilled = true };
+        figure.Segments.Add(new LineSegment { Point = new Point(x + width, y) });
+        figure.Segments.Add(new LineSegment { Point = new Point(x + width, y + height) });
+        figure.Segments.Add(new LineSegment { Point = new Point(x, y + height) });
+        geometry.Figures.Add(figure);
+    }
+
+    private readonly record struct NoteInterval(double Start, double End, int Count, bool HasOnset);
 
     private void Handle_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -223,6 +356,11 @@ public sealed class PlaybackTimeline : UserControl
         Height = height, CornerRadius = new CornerRadius(4), IsHitTestVisible = false,
         Background = new SolidColorBrush(Color.FromArgb(255, r, g, b))
     };
+    private static XamlPath NotePath(byte r, byte g, byte b, double opacity) => new()
+    {
+        Fill = new SolidColorBrush(Color.FromArgb(255, r, g, b)), Opacity = opacity,
+        IsHitTestVisible = false, Stretch = Stretch.None
+    };
     private static void PlaceBar(Border bar, double left, double width, double top)
     {
         bar.Width = width;
@@ -257,7 +395,7 @@ internal sealed class TimelineHandle : UserControl
         var hitArea = new Grid { Background = new SolidColorBrush(Colors.Transparent) };
         if (caption is null)
         {
-            hitArea.Children.Add(new Border { Width = 2, Height = 25, Background = new SolidColorBrush(Colors.White), VerticalAlignment = VerticalAlignment.Top });
+            hitArea.Children.Add(new Border { Width = 2, Height = 39, Background = new SolidColorBrush(Colors.White), VerticalAlignment = VerticalAlignment.Top });
             hitArea.Children.Add(new Ellipse { Width = 14, Height = 14, Fill = new SolidColorBrush(Colors.White), Stroke = new SolidColorBrush(Color.FromArgb(255, 0x20, 0x2B, 0x32)), StrokeThickness = 2, VerticalAlignment = VerticalAlignment.Top });
         }
         else

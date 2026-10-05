@@ -20,11 +20,14 @@ public sealed partial class MainWindow : Window
     private readonly PreviewAudioService _previewAudio = new();
     private readonly PlaybackEngine _player;
     private readonly SettingsStore _store;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _rangeSaveTimer;
     private readonly AudioTranscriptionService _audio;
     private readonly GlobalHotkeyService _hotkeys;
     private readonly List<Border> _keyCaps = [];
     private AppSettings _settings;
     private PlaybackPlan? _plan;
+    private PlaybackRange? _audibleRange;
+    private string? _planSongPath;
     private WindowTarget? _target;
     private CancellationTokenSource? _countdown;
     private CancellationTokenSource? _audioCancellation;
@@ -41,6 +44,10 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1360, 940));
         _store = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeltaHarmonica"));
         _settings = _store.Load();
+        _rangeSaveTimer = DispatcherQueue.CreateTimer();
+        _rangeSaveTimer.Interval = TimeSpan.FromMilliseconds(350);
+        _rangeSaveTimer.IsRepeating = false;
+        _rangeSaveTimer.Tick += (_, _) => SaveSettings();
         _audio = new(_store.DirectoryPath);
         _player = new(_input, _previewAudio);
         _player.Updated += snapshot => DispatcherQueue.TryEnqueue(() => UpdatePlayback(snapshot));
@@ -54,6 +61,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _closing = true;
+            _rangeSaveTimer.Stop();
             _countdown?.Cancel();
             _audioCancellation?.Cancel();
             _hotkeyWait?.Cancel();
@@ -145,11 +153,12 @@ public sealed partial class MainWindow : Window
         var errors = new List<string>();
         foreach (var path in paths)
         {
-            if (_songs.Any(s => string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase))) continue;
             try
             {
-                var song = await Task.Run(() => MidiReader.Read(path));
-                _songs.Add(new(path, song));
+                var fullPath = Path.GetFullPath(path);
+                if (_songs.Any(s => string.Equals(s.Path, fullPath, StringComparison.OrdinalIgnoreCase))) continue;
+                var song = await Task.Run(() => MidiReader.Read(fullPath));
+                _songs.Add(new(fullPath, song));
             }
             catch (Exception ex) { errors.Add($"{Path.GetFileName(path)}：{ex.Message}"); }
         }
@@ -187,6 +196,7 @@ public sealed partial class MainWindow : Window
     private async void PlaylistList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_initialized || _changingSong) return;
+        SaveSettings();
         await StopPlaybackAsync();
         LoadSelection();
     }
@@ -200,13 +210,14 @@ public sealed partial class MainWindow : Window
             .Concat(entry.Song.Tracks.Select(t => new TrackChoice(t.Index, $"{t.Index + 1}. {t.Name} ({t.NoteCount} 音符)"))).ToArray();
         TrackCombo.SelectedIndex = 0;
         _changingSong = false;
-        RebuildPlan(resetRange: true);
+        RebuildPlan(restoreRange: true);
     }
-    private void RebuildPlan(bool resetRange = false)
+    private void RebuildPlan(bool restoreRange = false)
     {
         if (PlaylistList.SelectedItem is not SongEntry entry) return;
         try
         {
+            restoreRange |= !string.Equals(_planSongPath, entry.Path, StringComparison.OrdinalIgnoreCase);
             int? track = (TrackCombo.SelectedItem as TrackChoice)?.Index;
             var options = new MappingOptions
             {
@@ -217,19 +228,20 @@ public sealed partial class MainWindow : Window
                 ChordPolicy = ChordCombo.SelectedIndex switch { 1 => ChordPolicy.Lowest, 2 => ChordPolicy.Compatible, _ => ChordPolicy.Highest },
                 SelectedTracks = track.HasValue ? new[] { track.Value } : null
             };
-            var previousStart = resetRange ? 0 : TimelineSlider.RangeStart;
-            var previousEnd = resetRange ? double.PositiveInfinity : TimelineSlider.RangeEnd;
+            var savedRange = restoreRange && _settings.SongRanges.TryGetValue(entry.Path, out var saved) ? saved : null;
+            var previousStart = restoreRange ? savedRange?.StartSeconds ?? 0 : TimelineSlider.RangeStart;
+            double? previousEnd = restoreRange ? savedRange?.EndSeconds : TimelineSlider.RangeEnd;
             _plan = PlaybackPlanBuilder.Build(entry.Song, options);
+            _planSongPath = entry.Path;
+            _audibleRange = PlaybackRange.TryGetAudibleRange(_plan, out var audible) ? audible : null;
             _player.Load(_plan);
-            var duration = _plan.Duration.TotalSeconds;
-            var end = Math.Clamp(previousEnd, 0, duration);
-            var start = Math.Clamp(previousStart, 0, end);
-            if (end <= start) { start = 0; end = duration; }
-            SetRangeControls(start, end);
+            var range = PlaybackRange.Normalize(previousStart, previousEnd, _plan.Duration);
+            SetRangeControls(range.Start.TotalSeconds, range.End.TotalSeconds);
+            TimelineSlider.SetNoteIntervals(_plan.Chords);
             _updatingTimeline = true;
-            TimelineSlider.Value = start;
+            TimelineSlider.Value = range.Start.TotalSeconds;
             TimelineSlider.IsSeekEnabled = false;
-            PositionLabel.Text = $"{FormatTime(TimeSpan.FromSeconds(start))} / {FormatTime(_plan.Duration)}";
+            PositionLabel.Text = $"{FormatTime(range.Start)} / {FormatTime(_plan.Duration)}";
             _updatingTimeline = false;
             PlanInfo.Text = $"{_plan.Chords.Count} 段指法 · 跳过 {_plan.SkippedNoteCount} 个音符" +
                 (_plan.Warnings.Count > 0 ? "\n" + string.Join("\n", _plan.Warnings) : " · 映射完成") +
@@ -246,7 +258,7 @@ public sealed partial class MainWindow : Window
         var duration = _plan.Duration.TotalSeconds;
         _updatingRange = true;
         TimelineSlider.Maximum = duration;
-        TimelineSlider.MinimumRange = Math.Min(.01, duration);
+        TimelineSlider.MinimumRange = Math.Min(.01, Math.Max(0, end - start));
         TimelineSlider.SetRange(start, end);
         _updatingRange = false;
         var endPosition = end >= duration ? _plan.Duration : TimeSpan.FromSeconds(end);
@@ -257,15 +269,18 @@ public sealed partial class MainWindow : Window
 
     private void ResetRangeControls()
     {
+        _planSongPath = null;
+        _audibleRange = null;
         _updatingRange = true;
         TimelineSlider.Maximum = 0;
         TimelineSlider.SetRange(0, 0);
         TimelineSlider.Value = 0;
         TimelineSlider.IsSeekEnabled = false;
+        TimelineSlider.SetNoteIntervals(Array.Empty<ScheduledChord>());
         _updatingRange = false;
         RangeStartLabel.Text = "开始位置 · 00:00.000";
         RangeEndLabel.Text = "结束位置 · 00:00.000";
-        RangeSummary.Text = "拖动进度条上方的“起 / 止”选择区间，白色标记显示播放位置。预览与演奏均使用此区间。";
+        RangeSummary.Text = "拖动“起 / 止”选择区间，白色标记用于定位。区间按歌曲自动保存，切歌或重启后恢复。";
         UpdateRangeAvailability();
     }
 
@@ -278,12 +293,35 @@ public sealed partial class MainWindow : Window
             return;
         }
         SetRangeControls(TimelineSlider.RangeStart, TimelineSlider.RangeEnd);
+        RememberCurrentRange();
     }
 
     private void ResetRange_Click(object sender, RoutedEventArgs e)
     {
         if (_plan is not null && !_starting && !_switchingSong && _player.State != PlaybackState.Playing)
+        {
             SetRangeControls(0, _plan.Duration.TotalSeconds);
+            RememberCurrentRange();
+        }
+    }
+
+    private void AutoTrimRange_Click(object sender, RoutedEventArgs e)
+    {
+        if (_audibleRange is not { } range || _starting || _switchingSong || _player.State == PlaybackState.Playing) return;
+        SetRangeControls(range.Start.TotalSeconds, range.End.TotalSeconds);
+        RememberCurrentRange();
+        SetStatus("已按当前可演奏音符去除首尾空白，保留完整尾音；区间已记住。", InfoBarSeverity.Success);
+    }
+
+    private void RememberCurrentRange()
+    {
+        if (_plan is null || _planSongPath is null) return;
+        var end = TimelineSlider.RangeEnd;
+        _settings.SongRanges[_planSongPath] = new SongPlaybackRange(TimelineSlider.RangeStart,
+            end >= _plan.Duration.TotalSeconds ? null : end);
+        // Keep edits in memory immediately; coalesce pointer movement into one disk write.
+        _rangeSaveTimer.Stop();
+        _rangeSaveTimer.Start();
     }
 
     private void UpdateRangeLabels()
@@ -292,7 +330,7 @@ public sealed partial class MainWindow : Window
         var end = TimeSpan.FromSeconds(TimelineSlider.RangeEnd);
         RangeStartLabel.Text = $"开始位置 · {FormatPreciseTime(start)}";
         RangeEndLabel.Text = $"结束位置 · {FormatPreciseTime(end)}";
-        RangeSummary.Text = $"所选区间 {FormatPreciseTime(start)} → {FormatPreciseTime(end)} · 时长 {FormatPreciseTime(end - start)}\n拖动“起 / 止”选择区间，白色标记用于定位。暂停后可调整，切歌恢复整首。";
+        RangeSummary.Text = $"所选区间 {FormatPreciseTime(start)} → {FormatPreciseTime(end)} · 时长 {FormatPreciseTime(end - start)}\n暂停后可调整。区间按歌曲自动保存，切歌或重启后恢复。";
     }
 
     private void UpdateRangeAvailability()
@@ -300,6 +338,7 @@ public sealed partial class MainWindow : Window
         var enabled = _plan is { Duration.Ticks: > 0 } && !_starting && !_switchingSong && _player.State != PlaybackState.Playing;
         TimelineSlider.IsEnabled = _plan is { Duration.Ticks: > 0 };
         TimelineSlider.IsRangeEnabled = ResetRangeButton.IsEnabled = enabled;
+        AutoTrimRangeButton.IsEnabled = enabled && _audibleRange.HasValue;
         TimelineSlider.IsSeekEnabled = _plan is { Duration.Ticks: > 0 } && !_starting && !_switchingSong && _player.State is PlaybackState.Playing or PlaybackState.Paused;
     }
 
@@ -385,6 +424,7 @@ public sealed partial class MainWindow : Window
     private async Task ChangeSongAsync(int delta, bool fromHotkey, bool forcePlay = false)
     {
         if (_closing || _songs.Count == 0 || _starting || _switchingSong) return;
+        SaveSettings();
         _switchingSong = true;
         UpdateRangeAvailability();
         var play = forcePlay || _player.State == PlaybackState.Playing;
@@ -654,6 +694,7 @@ public sealed partial class MainWindow : Window
     private void SaveSettings()
     {
         if (!_initialized) return;
+        _rangeSaveTimer.Stop();
         _settings = _settings with
         {
             Speed = SpeedSlider.Value, BaseMidiNote = Integer(BaseNoteBox, 60), Transpose = Integer(TransposeBox, 0),

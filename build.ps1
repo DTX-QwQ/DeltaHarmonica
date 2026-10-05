@@ -1,4 +1,7 @@
-param([switch]$SkipTests)
+param(
+    [switch]$SkipTests,
+    [string]$PublishDirectory
+)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 
@@ -11,7 +14,10 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE -ne 0) { throw '内置预览音效测试失败。' }
 }
 
-$publishDirectory = Join-Path $PSScriptRoot 'artifacts/DeltaHarmonica'
+if (-not $PublishDirectory) {
+    $PublishDirectory = Join-Path $PSScriptRoot 'artifacts/DeltaHarmonica'
+}
+$publishDirectory = [IO.Path]::GetFullPath($PublishDirectory)
 dotnet publish src/DeltaHarmonica.App/DeltaHarmonica.App.csproj -c Release -r win-x64 --self-contained true -o $publishDirectory
 if ($LASTEXITCODE -ne 0) { throw '发布失败。' }
 $requiredFiles = @('DeltaHarmonica.App.exe', 'App.xbf', 'MainWindow.xbf', 'DeltaHarmonica.App.pri', 'Assets/logo.png', 'Assets/app.ico', 'tools/audio_to_midi/audio_to_midi.py', 'tools/audio_to_midi/requirements.txt', 'tools/audio_to_midi/vendor/music-tempo.min.js', 'tools/audio_to_midi/vendor/music-tempo.LICENSE', 'examples/小星星.mid')

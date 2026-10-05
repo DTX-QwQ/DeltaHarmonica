@@ -34,6 +34,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("hotkey parsing prevents note recursion and duplicate bindings", HotkeyParsing),
     ("start hotkey migrates old settings and persists custom bindings", StartHotkeySettings),
     ("audio preferences migrate defaults, normalize invalid values, and persist choices", AudioPreferenceSettings),
+    ("song ranges persist independently and use full case-insensitive paths", RangeSettingsTests.Persistence),
+    ("old and malformed song ranges preserve other settings", RangeSettingsTests.Migration),
+    ("saved playback ranges clamp and recover invalid bounds", RangeSettingsTests.Normalization),
+    ("automatic trimming retains all playable notes and held-note tails", RangeSettingsTests.AudibleRange),
     ("native INPUT struct matches Windows ABI", NativeLayout)
 };
 var failures = 0;

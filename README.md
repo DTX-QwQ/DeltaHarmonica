@@ -15,7 +15,7 @@
 
 ## 运行
 
-从 [GitHub Releases](https://github.com/DTX-QwQ/DeltaHarmonica/releases/latest) 下载 `DeltaHarmonica-v1.1.0-win-x64.zip`，完整解压后运行文件夹中的 `DeltaHarmonica.App.exe`。Release 同时提供 SHA-256 校验文件。
+从 [GitHub Releases](https://github.com/DTX-QwQ/DeltaHarmonica/releases/latest) 下载 `DeltaHarmonica-v1.1.1-win-x64.zip`，完整解压后运行文件夹中的 `DeltaHarmonica.App.exe`。Release 同时提供 SHA-256 校验文件。
 
 程序默认请求以管理员身份运行，启动时 Windows 会显示 UAC 权限确认；允许后进入软件。若当前账号没有管理员权限，需要提供管理员凭据。管理员权限用于减少 Windows 输入权限等级不同导致的失败，不能绕过游戏保护或保证模拟输入有效。
 
@@ -34,10 +34,12 @@
 
 选择曲目后，直接拖动主进度条上的开始、结束手柄设置要演奏的片段；高亮部分就是所选演奏区间，中间的播放指针用于进度定位。位置按 MIDI 原曲的绝对时间显示；改变倍速只改变实际演奏速度，不改变所选时间点。开始位置必须早于结束位置。
 
+进度条下方的音符条显示当前音轨与指法中可演奏音符的位置和时长，空隙表示休止，区间外的音符以暗色显示。点击“一键去除首尾空白”，会将开始位置移到第一个可演奏音符，结束位置移到最后一个音符的结束处，保留完整尾音和曲目中间的休止；切换音轨或映射设置后，可以再次点击重新调整。没有可演奏音符时，此按钮不可用。
+
 - 点击“开始演奏”或“预览按键”时，从所选开始位置播放，到结束位置自动结束。预览同样遵循所选区间。
 - 演奏中、预览中或倒计时期间不能修改区间；暂停、停止或尚未播放时可调整。点击“恢复整首”可恢复从曲目开头到结尾。
 - 停止后，进度回到所选开始位置。区间内的进度定位不会超出开始、结束位置。
-- 切换曲目后恢复完整曲目区间；开启“播完自动下一首”时，当前区间结束后按下一首的完整曲目播放。
+- 手动调整、一键去除首尾空白和恢复整首都会按歌曲自动保存。切换曲目、开启“播完自动下一首”或重启软件后，使用该歌曲上次保存的区间；首次导入的曲目默认播放整首。同一文件路径对应同一份区间记忆。
 
 预览音效使用当前指法映射后的音高，遵循音高校准、移调、八度折叠和和弦策略。正常换音与休止使用平滑起音、淡出和线性混音；暂停、定位及停止会立即清空音频缓冲。倍速改变音符时长而不改变音高；暂停、停止、定位、切歌和播放结束会停止原音符，继续后从当前位置恢复。内置音色用于试听旋律，实际游戏音色可能有所不同；“开始演奏”只发送游戏按键，不播放软件音效。
 
@@ -96,6 +98,8 @@ python -m unittest discover -s tools/audio_to_midi/tests -v
 
 测试的输入服务使用记录替身，不向游戏或其他软件发送演奏按键。真实音频推理测试可在已安装的转录环境中执行 `tools/audio_to_midi/smoke_test.py`，检查 A4 / C5 测试录音生成的 MIDI 音高。
 
+演奏区间和音符标记的 WinUI 界面验证可运行 `./scripts/Invoke-RangeUiSmoke.ps1`。脚本复制源码并使用隔离设置与输入替身，验证手柄编辑、一键去除首尾空白、密集音符显示、切歌及两次独立启动后的区间恢复；结果和界面截图保存在 `.artifacts/range-ui-smoke-*/`。
+
 ## 源码
 
 | 路径 | 职责 |
@@ -110,6 +114,6 @@ python -m unittest discover -s tools/audio_to_midi/tests -v
 | `src/DeltaHarmonica.App/Services/AudioTranscriptionService.cs` | 本地环境安装、日志、取消和结果检查 |
 | `tools/audio_to_midi/` | Basic Pitch ONNX 转录工具 |
 
-曲库路径、音高校准、倍速和快捷键存储在 `%LOCALAPPDATA%/DeltaHarmonica/settings.json`。若程序发生未处理异常，日志记录在同目录 `crash.log`。
+曲库路径、每首歌曲的演奏区间、音高校准、倍速和快捷键存储在 `%LOCALAPPDATA%/DeltaHarmonica/settings.json`。若程序发生未处理异常，日志记录在同目录 `crash.log`。
 
 实现参考：[Microsoft WinUI 无 MSIX 部署](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app)、[SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)、[RegisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey)、[Spotify Basic Pitch](https://github.com/spotify/basic-pitch)。
