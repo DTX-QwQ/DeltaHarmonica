@@ -4,6 +4,14 @@
  xmlns:models="using:DeltaHarmonica.App.Models"
  xmlns:controls="using:DeltaHarmonica.App.Controls" Title="三角洲口琴 · Delta Harmonica">
  <Grid x:Name="RootGrid" Background="#141D24" RequestedTheme="Dark" Padding="28" RowSpacing="20">
+  <Grid.Resources>
+   <DataTemplate x:Key="LibrarySongTemplate" x:DataType="models:SongEntry">
+    <Grid Padding="0,9" ColumnSpacing="6"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+     <Border Background="Transparent" MinHeight="36" ToolTipService.ToolTip="按住拖动：调整顺序或移到其他分类" PointerPressed="LibraryDragHandle_PointerPressed" PointerMoved="LibraryDragHandle_PointerMoved" PointerReleased="LibraryDragHandle_PointerReleased" PointerCaptureLost="LibraryDragHandle_PointerCaptureLost" PointerCanceled="LibraryDragHandle_PointerCaptureLost"><FontIcon Glyph="&#xE700;" FontSize="12" Foreground="#81929D" VerticalAlignment="Center"/></Border>
+     <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="{x:Bind DisplayName, Mode=OneWay}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind DisplayName, Mode=OneWay}"/><TextBlock Text="{x:Bind Detail}" FontSize="11" Foreground="#AEBCC6"/></StackPanel>
+    </Grid>
+   </DataTemplate>
+  </Grid.Resources>
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="20">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -11,15 +19,13 @@
    <Border Grid.Column="1" Background="#253D37" CornerRadius="20" Padding="16,8" VerticalAlignment="Center"><TextBlock x:Name="StateBadge" Text="● 就绪" Foreground="{StaticResource AccentBrush}"/></Border>
   </Grid>
   <Grid Grid.Row="1" ColumnSpacing="22">
-   <Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-   <Border Style="{StaticResource CardStyle}">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Border Style="{StaticResource CardStyle}" Padding="16">
     <Grid RowSpacing="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <StackPanel Spacing="5"><TextBlock Text="我的曲库" Style="{StaticResource SectionTitle}"/><TextBlock x:Name="LibraryCount" Text="导入 MIDI，开始第一段旋律" Style="{StaticResource CaptionStyle}"/></StackPanel>
-     <StackPanel Grid.Row="1" Spacing="8"><Button Content="＋ 导入 MIDI" Click="ImportMidi_Click" HorizontalAlignment="Stretch"/><Button Content="载入小星星示例" Click="LoadDemo_Click" HorizontalAlignment="Stretch"/></StackPanel>
-     <ListView Grid.Row="2" x:Name="PlaylistList" SelectionChanged="PlaylistList_SelectionChanged" Background="Transparent" HorizontalContentAlignment="Stretch">
-      <ListView.ItemTemplate><DataTemplate x:DataType="models:SongEntry"><StackPanel Padding="2,10" Spacing="5"><TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{x:Bind Detail}" FontSize="12" Foreground="#AEBCC6"/></StackPanel></DataTemplate></ListView.ItemTemplate>
-     </ListView>
-     <StackPanel Grid.Row="3" Spacing="12"><Button Content="移除所选曲目" Click="RemoveSong_Click" HorizontalAlignment="Stretch"/><TextBlock Text="先打开游戏内口琴，再开始演奏。倒计时结束时锁定前台窗口。" Style="{StaticResource CaptionStyle}"/></StackPanel>
+     <StackPanel Grid.Row="1" Spacing="8"><Button Content="＋ 导入 MIDI" Click="ImportMidi_Click" HorizontalAlignment="Stretch"/><Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="CreateCategoryButton" Content="＋ 新增分类" Click="CreateCategory_Click" HorizontalAlignment="Stretch"/><Button Grid.Column="1" Content="小星星示例" Click="LoadDemo_Click" HorizontalAlignment="Stretch"/></Grid><TextBlock Text="拖动分类或曲目左侧 ≡ 调序；曲目可跨分类移动。" FontSize="11" Foreground="#AEBCC6" TextWrapping="Wrap"/></StackPanel>
+     <ScrollViewer Grid.Row="2" x:Name="LibraryScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="LibraryGroups" Spacing="8"/></ScrollViewer>
+     <StackPanel Grid.Row="3" Spacing="10"><Button x:Name="MoveSongButton" Content="移动所选曲目到分类" Click="MoveSong_Click" HorizontalAlignment="Stretch" IsEnabled="False"/><Button x:Name="RemoveSongButton" Content="移除所选曲目" Click="RemoveSong_Click" HorizontalAlignment="Stretch" IsEnabled="False"/><TextBlock Text="先打开游戏内口琴，再开始演奏。倒计时结束时锁定前台窗口。" Style="{StaticResource CaptionStyle}"/></StackPanel>
     </Grid>
    </Border>
    <Pivot Grid.Column="1" x:Name="WorkspacePivot" Margin="0,-12,0,0" SelectionChanged="WorkspacePivot_SelectionChanged">
@@ -29,7 +35,7 @@
        <Border Style="{StaticResource CardStyle}"><StackPanel Spacing="16">
         <TextBlock Text="NOW PLAYING" FontSize="11" CharacterSpacing="160" Foreground="{StaticResource AccentBrush}"/>
         <TextBlock x:Name="SongTitle" Text="选择一首 MIDI" FontSize="28" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-        <TextBlock x:Name="SongInfo" Text="支持 .mid / .midi、多音轨和 MIDI 变速事件" Style="{StaticResource CaptionStyle}"/>
+        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="SongInfo" Text="支持 .mid / .midi、多音轨和 MIDI 变速事件" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center"/><Button Grid.Column="1" x:Name="RenameSongButton" Click="RenameSong_Click" IsEnabled="False" ToolTipService.ToolTip="修改曲库中的歌曲名称，原 MIDI 文件保持不变。"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE70F;" FontSize="13"/><TextBlock Text="修改歌曲名称" FontSize="12"/></StackPanel></Button></Grid>
         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="演奏区间" FontWeight="SemiBold" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button x:Name="AutoTrimRangeButton" Content="一键去除首尾空白" Click="AutoTrimRange_Click" IsEnabled="False" ToolTipService.ToolTip="按当前音轨与指法，从第一个可演奏音符选到最后一个音符结束，保留完整尾音。"/><Button x:Name="ResetRangeButton" Content="恢复整首" Click="ResetRange_Click" IsEnabled="False"/></StackPanel></Grid>
         <controls:PlaybackTimeline x:Name="TimelineSlider" RangeChanged="PlaybackRange_ValueChanged" PositionChanged="TimelineSlider_ValueChanged" IsEnabled="False"/>
         <TextBlock Text="音符条显示当前音轨与指法的发声位置，空隙为休止。" Style="{StaticResource CaptionStyle}"/>
@@ -43,7 +49,20 @@
        </StackPanel></Border>
        <Border Style="{StaticResource CardStyle}"><StackPanel Spacing="14">
         <Grid ColumnSpacing="20"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><ComboBox x:Name="TrackCombo" Header="演奏音轨" HorizontalAlignment="Stretch" SelectionChanged="Mapping_Changed"/><ComboBox Grid.Column="1" x:Name="ChordCombo" Header="旋律 / 和弦" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Mapping_Changed"><ComboBoxItem Content="最高音 · 适合主旋律"/><ComboBoxItem Content="最低音 · 适合低音旋律"/><ComboBoxItem Content="兼容和弦 · 共享鼠标变调"/></ComboBox></Grid>
-        <Grid ColumnSpacing="20"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions><StackPanel Spacing="5"><TextBlock Text="演奏倍速"/><Slider x:Name="SpeedSlider" Minimum="0.25" Maximum="3" Value="1" StepFrequency="0.05" ValueChanged="SpeedSlider_ValueChanged"/></StackPanel><NumberBox Grid.Column="1" x:Name="TransposeBox" Header="整体移调 / 半音" Minimum="-36" Maximum="36" Value="0" SpinButtonPlacementMode="Compact" ValueChanged="MappingNumber_Changed"/></Grid>
+        <Grid ColumnSpacing="24">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="208"/></Grid.ColumnDefinitions>
+         <StackPanel Spacing="0"><TextBlock Text="演奏倍速" Margin="0,0,0,5"/><Slider x:Name="SpeedSlider" Minimum="0.25" Maximum="3" Value="1" StepFrequency="0.05" TickFrequency="0.25" TickPlacement="BottomRight" ValueChanged="SpeedSlider_ValueChanged" AutomationProperties.Name="演奏倍速"/><Canvas x:Name="SpeedScaleCanvas" Height="22" SizeChanged="SpeedScale_SizeChanged" IsHitTestVisible="False"/></StackPanel>
+         <StackPanel Grid.Column="1" x:Name="TransposeControls" Spacing="6">
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="整体移调"/><TextBlock Grid.Column="1" Text="半音" FontSize="12" Foreground="#AEBCC6" VerticalAlignment="Center"/></Grid>
+          <Grid x:Name="TransposeStepper" ColumnSpacing="6">
+           <Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>
+           <Button x:Name="TransposeDownButton" Width="36" Height="36" MinWidth="0" Padding="0" Tag="-1" Click="TransposeStep_Click" AutomationProperties.Name="降低一个半音" ToolTipService.ToolTip="降低一个半音"><FontIcon Glyph="&#xE738;" FontSize="12"/></Button>
+           <NumberBox Grid.Column="1" x:Name="TransposeBox" Minimum="-36" Maximum="36" Value="0" SmallChange="1" LargeChange="12" SpinButtonPlacementMode="Hidden" FontSize="16" Height="36" MinWidth="0" Padding="8,4" Loaded="TransposeBox_Loaded" ValueChanged="TransposeBox_ValueChanged" AutomationProperties.Name="整体移调（半音）" ToolTipService.ToolTip="输入 −36 到 36 的整数；↑ / ↓ 调整一个半音，Page Up / Down 调整一个八度。"/>
+           <Button Grid.Column="2" x:Name="TransposeUpButton" Width="36" Height="36" MinWidth="0" Padding="0" Tag="1" Click="TransposeStep_Click" AutomationProperties.Name="升高一个半音" ToolTipService.ToolTip="升高一个半音"><FontIcon Glyph="&#xE710;" FontSize="12"/></Button>
+          </Grid>
+          <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="TransposeHint" Text="原调 · 不移调" FontSize="11" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center"/><Button Grid.Column="1" x:Name="ResetTransposeButton" Content="恢复原调" FontSize="11" Padding="7,2" MinHeight="24" MinWidth="0" IsEnabled="False" Click="ResetTranspose_Click" ToolTipService.ToolTip="将整体移调恢复为 0 半音"/></Grid>
+         </StackPanel>
+        </Grid>
         <TextBlock x:Name="PlanInfo" Text="预览同步播放内置口琴音效，不向游戏发送输入。" Style="{StaticResource CaptionStyle}"/>
        </StackPanel></Border>
        <Border Style="{StaticResource CardStyle}"><StackPanel Spacing="14"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="口琴指法" Style="{StaticResource SectionTitle}"/><TextBlock Grid.Column="1" x:Name="ModifierLabel" Text="原调" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center"/></Grid><Grid x:Name="KeyboardGrid" ColumnSpacing="8" Height="76"/><TextBlock Text="按住左键：低八度    按住右键：高八度    按住中键：升半音" Style="{StaticResource CaptionStyle}"/></StackPanel></Border>
@@ -105,5 +124,6 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="风险提示：模拟输入可能导致游戏账号处罚，请自行评估。完整免责声明见“设置”。" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center"/>
                 <HyperlinkButton Grid.Column="1" Content="开源地址 ↗" NavigateUri="https://github.com/DTX-QwQ/DeltaHarmonica" Padding="0,4"/></Grid></StackPanel>
+  <Canvas x:Name="LibraryDragOverlay" Grid.RowSpan="3" Canvas.ZIndex="20" IsHitTestVisible="False"/>
  </Grid>
 </Window>

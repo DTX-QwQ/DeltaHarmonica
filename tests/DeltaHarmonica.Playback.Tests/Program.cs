@@ -36,6 +36,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("audio preferences migrate defaults, normalize invalid values, and persist choices", AudioPreferenceSettings),
     ("song ranges persist independently and use full case-insensitive paths", RangeSettingsTests.Persistence),
     ("old and malformed song ranges preserve other settings", RangeSettingsTests.Migration),
+    ("renames, song order, categories, and expansion survive settings restart", LibrarySettingsTests.Persistence),
+    ("legacy and malformed library metadata preserve ranges and playback preferences", LibrarySettingsTests.Migration),
+    ("library normalization repairs category identity and orphaned songs independently", LibrarySettingsTests.Normalization),
+    ("song renames and category membership notify UI bindings without changing MIDI", LibrarySettingsTests.Notifications),
     ("saved playback ranges clamp and recover invalid bounds", RangeSettingsTests.Normalization),
     ("automatic trimming retains all playable notes and held-note tails", RangeSettingsTests.AudibleRange),
     ("native INPUT struct matches Windows ABI", NativeLayout)

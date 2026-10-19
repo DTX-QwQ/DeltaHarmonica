@@ -64,7 +64,7 @@ public static class RangeUiSmoke
         Exception? failure = null;
         try
         {
-            await WaitForAsync(() => Field<bool>("_initialized"));
+            await WaitForAsync(() => Field<bool>("_initialized") && !Field<bool>("_restoringLibrary"));
             Control<CheckBox>("AutoNextCheck").IsChecked = false;
             if (Phase == "edit") await EditPhaseAsync(); else await RestartPhaseAsync();
             Check("no-native-chord-input", UiSmokeInputSink.Instance.ChordCalls == 0, $"native chord calls={UiSmokeInputSink.Instance.ChordCalls}");
@@ -213,7 +213,7 @@ public static class RangeUiSmoke
     private static async Task RestartPhaseAsync()
     {
         SetStep("reload-persisted-playlist");
-        await WaitForAsync(() => Control<ListView>("PlaylistList").Items.Count == 5 && Field<PlaybackPlan?>("_plan") is not null);
+        await WaitForAsync(() => Field<System.Collections.ObjectModel.ObservableCollection<SongEntry>>("_songs").Count == 5 && Field<PlaybackPlan?>("_plan") is not null);
         CheckRange("fresh-process-restores-close-flushed-first-range", 2.375, 7.625);
         Check("fresh-process-restores-speed", Near(Player.Speed, 1.75), $"speed={Player.Speed}");
         await SelectSongAsync(1, 10);
@@ -235,8 +235,9 @@ public static class RangeUiSmoke
     private static T TimelineField<T>(string name) => (T)typeof(PlaybackTimeline).GetField(name, PrivateInstance)!.GetValue(Timeline)!;
     private static async Task SelectSongAsync(int index, double duration)
     {
-        Control<ListView>("PlaylistList").SelectedIndex = index;
-        await WaitForAsync(() => Control<ListView>("PlaylistList").SelectedIndex == index && !Field<bool>("_switchingSong") && Field<string?>("_planSongPath") == ((SongEntry)Control<ListView>("PlaylistList").SelectedItem).Path && Near(Player.Duration.TotalSeconds, duration));
+        var song = Field<System.Collections.ObjectModel.ObservableCollection<SongEntry>>("_songs")[index];
+        await InvokeTaskAsync("SelectSongAsync", song);
+        await WaitForAsync(() => ReferenceEquals(Field<SongEntry?>("_selectedSong"), song) && !Field<bool>("_switchingSong") && Field<string?>("_planSongPath") == song.Path && Near(Player.Duration.TotalSeconds, duration));
         await Task.Delay(100);
     }
     private static void CheckRange(string name, double start, double end) => Check(name,

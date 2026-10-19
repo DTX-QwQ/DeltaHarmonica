@@ -14,5 +14,7 @@
     <Compile Include="../../src/DeltaHarmonica.App/Services/GlobalHotkeyService.cs" Link="GlobalHotkeyService.cs" />
     <Compile Include="../../src/DeltaHarmonica.App/Services/ForegroundWindowService.cs" Link="ForegroundWindowService.cs" />
     <Compile Include="../../src/DeltaHarmonica.App/Models/AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Models/SongEntry.cs" Link="SongEntry.cs" />
+    <Compile Include="../../src/DeltaHarmonica.App/Models/SongCategory.cs" Link="SongCategory.cs" />
   </ItemGroup>
 </Project>

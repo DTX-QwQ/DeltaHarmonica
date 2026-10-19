@@ -53,7 +53,7 @@ public sealed partial class MainWindow : Window
         _player.Updated += snapshot => DispatcherQueue.TryEnqueue(() => UpdatePlayback(snapshot));
         _hotkeys = new(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Triggered += action => DispatcherQueue.TryEnqueue(async () => await HandleHotkeyAsync(action));
-        PlaylistList.ItemsSource = _songs;
+        InitializeLibrary();
         CreateKeyboard();
         RestoreControls();
         RootGrid.Loaded += RootGrid_Loaded;
@@ -82,7 +82,9 @@ public sealed partial class MainWindow : Window
         UpdateHotkeyHint();
         if (error is not null) SetStatus(error, InfoBarSeverity.Warning);
         EnvironmentLabel.Text = _audio.IsInstalled ? "本地转录环境已就绪" : "尚未安装 · 选择 Python 3.10–3.12 后安装";
-        await AddMidiPathsAsync(_settings.Playlist.Where(File.Exists).ToArray());
+        _restoringLibrary = true;
+        try { await AddMidiPathsAsync(_settings.Playlist.Where(File.Exists).ToArray()); }
+        finally { _restoringLibrary = false; SaveSettings(); }
     }
 
     private void RestoreControls()
@@ -92,6 +94,7 @@ public sealed partial class MainWindow : Window
         SpeedLabel.Text = $"{SpeedSlider.Value:F2} ×";
         BaseNoteBox.Value = Math.Clamp(_settings.BaseMidiNote, 0, 115);
         TransposeBox.Value = Math.Clamp(_settings.Transpose, -36, 36);
+        UpdateTransposeControls();
         LowerOffsetBox.Value = Math.Clamp(_settings.LowerOffset, -36, 0);
         UpperOffsetBox.Value = Math.Clamp(_settings.UpperOffset, 0, 36);
         SemitoneBox.Value = Math.Clamp(_settings.SemitoneOffset, -2, 2);
@@ -158,21 +161,27 @@ public sealed partial class MainWindow : Window
                 var fullPath = Path.GetFullPath(path);
                 if (_songs.Any(s => string.Equals(s.Path, fullPath, StringComparison.OrdinalIgnoreCase))) continue;
                 var song = await Task.Run(() => MidiReader.Read(fullPath));
-                _songs.Add(new(fullPath, song));
+                if (_closing || _songs.Any(s => string.Equals(s.Path, fullPath, StringComparison.OrdinalIgnoreCase))) continue;
+                AddLibrarySong(new(fullPath, song));
             }
             catch (Exception ex) { errors.Add($"{Path.GetFileName(path)}：{ex.Message}"); }
         }
-        if (_songs.Count > 0 && PlaylistList.SelectedIndex < 0) PlaylistList.SelectedIndex = 0;
-        LibraryCount.Text = $"{_songs.Count} 首曲目 · 保存在本机";
-        SaveSettings();
+        RefreshLibraryOrder();
+        if (_songs.Count > 0 && _selectedSong is null) await SelectSongAsync(_songs[0]);
         if (errors.Count > 0) SetStatus(string.Join("\n", errors), InfoBarSeverity.Warning);
     }
     private async void RemoveSong_Click(object sender, RoutedEventArgs e)
     {
-        if (PlaylistList.SelectedItem is not SongEntry selected) return;
+        if (_selectedSong is not { } selected) return;
         await StopPlaybackAsync();
-        _songs.Remove(selected);
-        if (_songs.Count > 0) PlaylistList.SelectedIndex = 0;
+        var category = _categories.FirstOrDefault(c => c.Songs.Contains(selected));
+        if (_closing || category is null) return;
+        _syncingLibrarySelection = true;
+        try { category.Songs.Remove(selected); }
+        finally { _syncingLibrarySelection = false; }
+        _selectedSong = null;
+        RefreshLibraryOrder();
+        if (_songs.Count > 0) await SelectSongAsync(_songs[0]);
         else
         {
             SongTitle.Text = "选择一首 MIDI"; SongInfo.Text = "曲库为空"; _plan = null;
@@ -190,19 +199,12 @@ public sealed partial class MainWindow : Window
             TrackCombo.ItemsSource = null;
             _changingSong = false;
         }
-        LibraryCount.Text = $"{_songs.Count} 首曲目 · 保存在本机";
+        UpdateLibrarySelection();
         SaveSettings();
-    }
-    private async void PlaylistList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!_initialized || _changingSong) return;
-        SaveSettings();
-        await StopPlaybackAsync();
-        LoadSelection();
     }
     private void LoadSelection()
     {
-        if (PlaylistList.SelectedItem is not SongEntry entry) return;
+        if (_selectedSong is not { } entry) return;
         SongTitle.Text = entry.DisplayName;
         SongInfo.Text = entry.Detail;
         _changingSong = true;
@@ -214,7 +216,7 @@ public sealed partial class MainWindow : Window
     }
     private void RebuildPlan(bool restoreRange = false)
     {
-        if (PlaylistList.SelectedItem is not SongEntry entry) return;
+        if (_selectedSong is not { } entry) return;
         try
         {
             restoreRange |= !string.Equals(_planSongPath, entry.Path, StringComparison.OrdinalIgnoreCase);
@@ -438,9 +440,7 @@ public sealed partial class MainWindow : Window
             await _player.StopAsync();
             token.ThrowIfCancellationRequested();
             if (_closing) return;
-            _changingSong = true;
-            PlaylistList.SelectedIndex = (Math.Max(0, PlaylistList.SelectedIndex) + delta + _songs.Count) % _songs.Count;
-            _changingSong = false;
+            SetSelectedSong(_songs[(Math.Max(0, _selectedSong is null ? -1 : _songs.IndexOf(_selectedSong)) + delta + _songs.Count) % _songs.Count]);
             LoadSelection();
             if (play) await StartAsync(preview, preserveTarget: fromHotkey, songTransition: true);
         }
@@ -449,7 +449,7 @@ public sealed partial class MainWindow : Window
     }
     private async Task HandleHotkeyAsync(HotkeyAction action)
     {
-        if (_closing) return;
+        if (_closing || (_libraryDialogOpen && action != HotkeyAction.Stop)) return;
         if (action == HotkeyAction.Stop) { await StopPlaybackAsync(); return; }
         // Starting again must not restart an active performance or the target-window countdown.
         // A preview can be replaced by a game performance, matching the Start button.
@@ -513,7 +513,7 @@ public sealed partial class MainWindow : Window
             var completed = _lastState != PlaybackState.Completed && snapshot.State == PlaybackState.Completed;
             _lastState = snapshot.State;
             _lastPlaybackMessage = snapshot.Message;
-            if (completed && AutoNextCheck.IsChecked == true && PlaylistList.SelectedIndex < _songs.Count - 1)
+            if (completed && AutoNextCheck.IsChecked == true && _selectedSong is not null && _songs.IndexOf(_selectedSong) < _songs.Count - 1)
             {
                 var completedPlan = _plan;
                 DispatcherQueue.TryEnqueue(async () =>
@@ -693,7 +693,7 @@ public sealed partial class MainWindow : Window
     }
     private void SaveSettings()
     {
-        if (!_initialized) return;
+        if (!_initialized || _restoringLibrary) return;
         _rangeSaveTimer.Stop();
         _settings = _settings with
         {
@@ -704,7 +704,11 @@ public sealed partial class MainWindow : Window
             PythonPath = PythonPathBox.Text, AudioOutputDirectory = OutputDirectoryBox.Text,
             AudioPreset = AudioOption(AudioPresetCombo, "balanced"), AudioMelodyMode = AudioOption(AudioMelodyCombo, "highest"),
             AudioQuantization = AudioOption(AudioQuantizationCombo, "none"),
-            Playlist = _songs.Select(s => s.Path).ToList()
+            Playlist = _songs.Select(s => s.Path).ToList(),
+            LibraryCategories = _categories.Where(c => c.Id.Length > 0).Select(c => new LibraryCategorySettings(c.Id, c.Name, c.IsExpanded)).ToList(),
+            UncategorizedExpanded = _categories.First(c => c.Id.Length == 0).IsExpanded,
+            UncategorizedIndex = _categories.FindIndex(c => c.Id.Length == 0),
+            SongMetadata = CaptureSongMetadata()
         };
         try { _store.Save(_settings); }
         catch (Exception ex) { if (!_closing) SetStatus($"设置保存失败：{ex.Message}", InfoBarSeverity.Warning); }

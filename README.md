@@ -15,7 +15,7 @@
 
 ## 运行
 
-从 [GitHub Releases](https://github.com/DTX-QwQ/DeltaHarmonica/releases/latest) 下载 `DeltaHarmonica-v1.1.1-win-x64.zip`，完整解压后运行文件夹中的 `DeltaHarmonica.App.exe`。Release 同时提供 SHA-256 校验文件。
+从 [GitHub Releases](https://github.com/DTX-QwQ/DeltaHarmonica/releases/latest) 下载 `DeltaHarmonica-v1.2.0-win-x64.zip`，完整解压后运行文件夹中的 `DeltaHarmonica.App.exe`。Release 同时提供 SHA-256 校验文件。
 
 程序默认请求以管理员身份运行，启动时 Windows 会显示 UAC 权限确认；允许后进入软件。若当前账号没有管理员权限，需要提供管理员凭据。管理员权限用于减少 Windows 输入权限等级不同导致的失败，不能绕过游戏保护或保证模拟输入有效。
 
@@ -27,6 +27,16 @@
 4. 使用全局快捷键暂停、切歌或停止；切到其他窗口时自动暂停并释放输入。切回原游戏窗口后按暂停快捷键继续。
 
 默认快捷键：**F5 开始演奏，F8 暂停/继续，F6 上一首，F7 下一首，F9 停止**。在“设置”中可修改为 `Ctrl+Alt+P` 等组合并自动保存。重复、无效或被其他程序占用的组合会显示错误，原快捷键保持有效。旧配置会保留原有快捷键并补上 F5；若 F5 已分配给其他操作，则为开始演奏选用空闲的 F10–F24。
+
+## 整理曲库、调整倍速与移调
+
+- 在 NOW PLAYING 歌曲名称右下方点击“修改歌曲名称”，可修改曲库中的显示名称。名称立即同步到左侧曲库并保存，不改动原 MIDI 文件或已保存的演奏区间。
+- 点击“新增分类”创建分类；点击分类标题展开或收起。新导入的曲目默认放入“未分类”，移除后重新导入的曲目会恢复已保存的名称和有效分类。
+- 按住分类标题左侧的“≡”可调整整个分类的顺序，“未分类”也可移动；分类旁的三点菜单提供上移、下移操作。分类内歌曲随分类一起移动，展开状态保持不变。
+- 按住歌曲左侧的“≡”拖动调整顺序；拖到其他分类标题，或目标分类内的歌曲之间，即可跨分类移动。绿色标记显示落点，拖到曲库上、下边缘会自动滚动，按 Esc 可取消。也可选中歌曲后点击“移动所选曲目到分类”。自定义分类的三点菜单还可修改分类名称或删除分类，删除分类时歌曲移回“未分类”。
+- 上一首、下一首和自动连播按分类从上到下、分类内歌曲从上到下的顺序进行；收起分类只隐藏列表，歌曲仍参与播放。整理当前曲目的顺序或分类不会重启播放。曲名、顺序、分类归属和展开状态在重启后恢复。
+- 演奏倍速滑块提供 **0.25–3×** 刻度，每 **0.25×** 一条刻线，常用倍率配有数字标注；仍可按 **0.05×** 步长微调，实时调整速度。
+- 倍速右侧的“整体移调”可用常驻减号、加号逐半音调整，也可直接输入 **−36～36** 的整数；下方显示升降方向和半音数，点击“恢复原调”归零。输入框支持 ↑ / ↓ 调整一个半音、Page Up / Down 调整一个八度。移调会停止当前演奏并重新生成指法，设置在重启后保留。
 
 开始快捷键在松开普通键和修饰键后进入倒计时，从所选区间起点演奏；倒计时或实际演奏中重复按开始键不会重启曲目。预览中按开始键会停止试听并进入演奏倒计时，暂停时按开始键会从区间起点重新演奏。停止快捷键或停止按钮可取消等待和倒计时。停止时按暂停快捷键也能开始当前曲目的倒计时。
 
@@ -100,12 +110,16 @@ python -m unittest discover -s tools/audio_to_midi/tests -v
 
 演奏区间和音符标记的 WinUI 界面验证可运行 `./scripts/Invoke-RangeUiSmoke.ps1`。脚本复制源码并使用隔离设置与输入替身，验证手柄编辑、一键去除首尾空白、密集音符显示、切歌及两次独立启动后的区间恢复；结果和界面截图保存在 `.artifacts/range-ui-smoke-*/`。
 
+曲库与播放控件的 WinUI 验证可运行 `./scripts/Invoke-LibraryUiSmoke.ps1`，检查曲名绑定、歌曲与分类调序、排序后播放状态、三点菜单和移调控件在不同窗口宽度下的布局、移调边界，以及两次独立启动后的持久化恢复。脚本使用隔离数据和输入替身，结果与截图保存在 `.artifacts/library-ui-smoke-*/`；拖拽手势另在实际窗口中验证。应用使用窗口内指针捕获处理曲库拖拽，可兼容管理员运行模式。
+
 ## 源码
 
 | 路径 | 职责 |
 | --- | --- |
 | `src/DeltaHarmonica.App/MainWindow.xaml` | 原生 WinUI 界面 |
 | `src/DeltaHarmonica.App/MainWindow.xaml.cs` | 曲库、倒计时、设置和转录交互 |
+| `src/DeltaHarmonica.App/MainWindow.Library.cs` | 曲名编辑、分类、拖拽排序和倍速刻度 |
+| `src/DeltaHarmonica.App/MainWindow.Transpose.cs` | 整体移调步进、原调恢复和数值提示 |
 | `src/DeltaHarmonica.Core/` | MIDI 解析、音高映射、旋律和和弦规划 |
 | `src/DeltaHarmonica.App/Services/PlaybackEngine.cs` | 单调时钟、倍速、暂停、进度和窗口检查 |
 | `src/DeltaHarmonica.App/Services/PreviewAudioService.cs` | 内置口琴合成音色与预览音频输出 |
@@ -114,6 +128,6 @@ python -m unittest discover -s tools/audio_to_midi/tests -v
 | `src/DeltaHarmonica.App/Services/AudioTranscriptionService.cs` | 本地环境安装、日志、取消和结果检查 |
 | `tools/audio_to_midi/` | Basic Pitch ONNX 转录工具 |
 
-曲库路径、每首歌曲的演奏区间、音高校准、倍速和快捷键存储在 `%LOCALAPPDATA%/DeltaHarmonica/settings.json`。若程序发生未处理异常，日志记录在同目录 `crash.log`。
+曲库路径和顺序、歌曲显示名称、分类及展开状态、每首歌曲的演奏区间、音高校准、倍速和快捷键存储在 `%LOCALAPPDATA%/DeltaHarmonica/settings.json`。旧版曲库自动归入“未分类”。若程序发生未处理异常，日志记录在同目录 `crash.log`。
 
 实现参考：[Microsoft WinUI 无 MSIX 部署](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app)、[SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)、[RegisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey)、[Spotify Basic Pitch](https://github.com/spotify/basic-pitch)。

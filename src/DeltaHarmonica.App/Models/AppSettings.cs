@@ -23,12 +23,173 @@ public sealed record AppSettings
     public string AudioQuantization { get; init; } = "none";
     public HotkeySettings Hotkeys { get; init; } = new();
     public List<string> Playlist { get; init; } = [];
+    [JsonConverter(typeof(LibraryCategoriesJsonConverter))]
+    public List<LibraryCategorySettings> LibraryCategories { get; init; } = [];
+    [JsonConverter(typeof(SongMetadataJsonConverter))]
+    public Dictionary<string, SongLibraryMetadata> SongMetadata { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    [JsonConverter(typeof(ExpandedStateJsonConverter))]
+    public bool UncategorizedExpanded { get; init; } = true;
+    [JsonConverter(typeof(CategoryIndexJsonConverter))]
+    public int UncategorizedIndex { get; init; }
     [JsonConverter(typeof(SongRangesJsonConverter))]
     public Dictionary<string, SongPlaybackRange> SongRanges { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>Saved positions in original MIDI seconds; a null end means the entire remaining song.</summary>
 public sealed record SongPlaybackRange(double StartSeconds = 0, double? EndSeconds = null);
+
+public sealed record LibraryCategorySettings(string Id = "", string Name = "", bool IsExpanded = true);
+public sealed record SongLibraryMetadata(string? DisplayName = null, string CategoryId = "");
+
+/// <summary>Repairs library data independently of playback preferences and saved song ranges.</summary>
+public static class LibrarySettingsNormalizer
+{
+    public static AppSettings Normalize(AppSettings settings)
+    {
+        var categories = NormalizeCategories(settings.LibraryCategories);
+        var categoryIds = categories.ToDictionary(category => category.Id, StringComparer.OrdinalIgnoreCase);
+        var metadata = NormalizeMetadata(settings.SongMetadata);
+        foreach (var (path, song) in metadata.ToArray())
+        {
+            var id = categoryIds.TryGetValue(song.CategoryId, out var category) ? category.Id : "";
+            metadata[path] = song with { CategoryId = id };
+        }
+        return settings with { LibraryCategories = categories, SongMetadata = metadata,
+            UncategorizedIndex = Math.Clamp(settings.UncategorizedIndex, 0, categories.Count) };
+    }
+
+    public static List<LibraryCategorySettings> NormalizeCategories(IEnumerable<LibraryCategorySettings>? source)
+    {
+        var categories = new List<LibraryCategorySettings>();
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (source is null) return categories;
+        foreach (var category in source)
+        {
+            if (category is null) continue;
+            var id = CleanText(category.Id) ?? "";
+            if (id.Length == 0 || !ids.Add(id))
+            {
+                do { id = Guid.NewGuid().ToString("N"); } while (!ids.Add(id));
+            }
+            var baseName = CleanText(category.Name) ?? "未命名分类";
+            var name = baseName;
+            for (var suffix = 2; !names.Add(name); suffix++) name = $"{baseName}（{suffix}）";
+            categories.Add(new(id, name, category.IsExpanded));
+        }
+        return categories;
+    }
+
+    public static Dictionary<string, SongLibraryMetadata> NormalizeMetadata(Dictionary<string, SongLibraryMetadata>? source)
+    {
+        var metadata = new Dictionary<string, SongLibraryMetadata>(StringComparer.OrdinalIgnoreCase);
+        if (source is null) return metadata;
+        foreach (var (path, song) in source)
+        {
+            if (song is null || !TryNormalizePath(path, out var fullPath)) continue;
+            metadata[fullPath] = new(CleanText(song.DisplayName), CleanText(song.CategoryId) ?? "");
+        }
+        return metadata;
+    }
+
+    public static bool TryNormalizePath(string? path, out string fullPath)
+    {
+        fullPath = "";
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try { fullPath = Path.GetFullPath(path); return true; }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+    }
+
+    private static string? CleanText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var clean = new string(value.Where(character => !char.IsControl(character)).ToArray()).Trim();
+        return clean.Length == 0 ? null : clean;
+    }
+}
+
+internal sealed class CategoryIndexJsonConverter : JsonConverter<int>
+{
+    public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        return document.RootElement.ValueKind == JsonValueKind.Number && document.RootElement.TryGetInt32(out var index)
+            ? Math.Max(0, index) : 0;
+    }
+
+    public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options) => writer.WriteNumberValue(Math.Max(0, value));
+}
+
+internal sealed class LibraryCategoriesJsonConverter : JsonConverter<List<LibraryCategorySettings>>
+{
+    public override bool HandleNull => true;
+    public override List<LibraryCategorySettings> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var categories = new List<LibraryCategorySettings>();
+        if (document.RootElement.ValueKind != JsonValueKind.Array) return categories;
+        foreach (var category in document.RootElement.EnumerateArray())
+        {
+            if (category.ValueKind != JsonValueKind.Object) continue;
+            var id = ReadText(category, nameof(LibraryCategorySettings.Id)) ?? "";
+            var name = ReadText(category, nameof(LibraryCategorySettings.Name)) ?? "";
+            var expanded = !category.TryGetProperty(nameof(LibraryCategorySettings.IsExpanded), out var savedExpanded) ||
+                savedExpanded.ValueKind != JsonValueKind.False;
+            categories.Add(new(id, name, expanded));
+        }
+        return LibrarySettingsNormalizer.NormalizeCategories(categories);
+    }
+
+    internal static string? ReadText(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var saved) && saved.ValueKind == JsonValueKind.String ? saved.GetString() : null;
+
+    public override void Write(Utf8JsonWriter writer, List<LibraryCategorySettings> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartArray();
+        foreach (var category in LibrarySettingsNormalizer.NormalizeCategories(value)) JsonSerializer.Serialize(writer, category, options);
+        writer.WriteEndArray();
+    }
+}
+
+internal sealed class SongMetadataJsonConverter : JsonConverter<Dictionary<string, SongLibraryMetadata>>
+{
+    public override bool HandleNull => true;
+    public override Dictionary<string, SongLibraryMetadata> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var metadata = new Dictionary<string, SongLibraryMetadata>(StringComparer.OrdinalIgnoreCase);
+        if (document.RootElement.ValueKind != JsonValueKind.Object) return metadata;
+        foreach (var entry in document.RootElement.EnumerateObject())
+        {
+            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
+            var name = LibraryCategoriesJsonConverter.ReadText(entry.Value, nameof(SongLibraryMetadata.DisplayName));
+            var categoryId = LibraryCategoriesJsonConverter.ReadText(entry.Value, nameof(SongLibraryMetadata.CategoryId)) ?? "";
+            if (LibrarySettingsNormalizer.TryNormalizePath(entry.Name, out var path)) metadata[path] = new(name, categoryId);
+        }
+        return LibrarySettingsNormalizer.NormalizeMetadata(metadata);
+    }
+
+    public override void Write(Utf8JsonWriter writer, Dictionary<string, SongLibraryMetadata> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        foreach (var (path, song) in LibrarySettingsNormalizer.NormalizeMetadata(value))
+        {
+            writer.WritePropertyName(path);
+            JsonSerializer.Serialize(writer, song, options);
+        }
+        writer.WriteEndObject();
+    }
+}
+
+internal sealed class ExpandedStateJsonConverter : JsonConverter<bool>
+{
+    public override bool Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        return document.RootElement.ValueKind != JsonValueKind.False;
+    }
+    public override void Write(Utf8JsonWriter writer, bool value, JsonSerializerOptions options) => writer.WriteBooleanValue(value);
+}
 
 internal sealed class SongRangesJsonConverter : JsonConverter<Dictionary<string, SongPlaybackRange>>
 {
@@ -94,13 +255,13 @@ public sealed class SettingsStore(string directory)
             var loaded = json is null ? new AppSettings() : JsonSerializer.Deserialize<AppSettings>(json) ?? new();
             var hotkeys = loaded.Hotkeys ?? new();
             if (json is not null) hotkeys = AddMissingStartHotkey(json, hotkeys);
-            return loaded with
+            return LibrarySettingsNormalizer.Normalize(loaded with
             {
                 Hotkeys = hotkeys, Playlist = loaded.Playlist ?? [], SongRanges = SongRangesJsonConverter.Normalize(loaded.SongRanges),
                 AudioPreset = loaded.AudioPreset is "solo" or "balanced" or "ensemble" ? loaded.AudioPreset : "balanced",
                 AudioMelodyMode = loaded.AudioMelodyMode is "highest" or "smart" or "polyphonic" ? loaded.AudioMelodyMode : "highest",
                 AudioQuantization = loaded.AudioQuantization is "none" or "1/4" or "1/8" or "1/16" ? loaded.AudioQuantization : "none"
-            };
+            });
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
     }
@@ -126,7 +287,7 @@ public sealed class SettingsStore(string directory)
     {
         Directory.CreateDirectory(DirectoryPath);
         var temp = FilePath + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(settings with { SongRanges = SongRangesJsonConverter.Normalize(settings.SongRanges) },
+        File.WriteAllText(temp, JsonSerializer.Serialize(LibrarySettingsNormalizer.Normalize(settings with { SongRanges = SongRangesJsonConverter.Normalize(settings.SongRanges) }),
             new JsonSerializerOptions { WriteIndented = true }));
         File.Move(temp, FilePath, overwrite: true);
     }
